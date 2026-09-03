@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.git/
+.github/
+observability/
+docker/
+tests/
+*.md

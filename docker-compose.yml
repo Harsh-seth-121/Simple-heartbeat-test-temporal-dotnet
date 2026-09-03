@@ -1,0 +1,158 @@
+name: heartbeat-demo
+
+x-app-env: &app-env
+  TEMPORAL_TARGET: ${TEMPORAL_TARGET:-local}
+  TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+  TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  TEMPORAL_API_KEY: ${TEMPORAL_API_KEY:-}
+  TEMPORAL_TLS_CLIENT_CERT_PATH: ${TEMPORAL_TLS_CLIENT_CERT_PATH:-}
+  TEMPORAL_TLS_CLIENT_KEY_PATH: ${TEMPORAL_TLS_CLIENT_KEY_PATH:-}
+  # Only needed for a server that wants TLS but no client credentials. Blank credentials
+  # above are treated as absent, so leaving them empty keeps the local stack on plaintext.
+  TEMPORAL_TLS: ${TEMPORAL_TLS:-}
+  TASK_QUEUE: ${TASK_QUEUE:-long-activity-heartbeat}
+  JOB_ITEM_COUNT: ${JOB_ITEM_COUNT:-200}
+  JOB_PER_ITEM_MILLIS: ${JOB_PER_ITEM_MILLIS:-250}
+  HEARTBEAT_TIMEOUT_SECONDS: ${HEARTBEAT_TIMEOUT_SECONDS:-10}
+  CHAOS_FAILURE_RATE: ${CHAOS_FAILURE_RATE:-0.02}
+  # Always an IP literal: the SDK rejects hostnames for the Prometheus bind address.
+  METRICS_BIND_ADDRESS: 0.0.0.0:9464
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U temporal -d temporal']
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    mem_limit: 1g
+    networks: [demo]
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+      # Both are required for anything outside this container to reach the service and its metrics.
+      - BIND_ON_IP=0.0.0.0
+      - PROMETHEUS_ENDPOINT=0.0.0.0:9090
+      # Low shard count keeps history memory sane on a laptop-sized Docker VM.
+      - NUM_HISTORY_SHARDS=4
+    volumes:
+      - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    ports:
+      - '7233:7233'
+      # Server metrics on host 9091, because Prometheus itself takes host 9090.
+      - '9091:9090'
+    mem_limit: 2g
+    networks: [demo]
+
+  temporal-ui:
+    image: temporalio/ui:2.50.1
+    depends_on: [temporal]
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    ports:
+      - '8080:8080'
+    mem_limit: 512m
+    networks: [demo]
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: heartbeat-demo-app:local
+    command: ['Worker.dll']
+    depends_on: [temporal]
+    environment:
+      <<: *app-env
+      WORKER_MAX_CONCURRENT_ACTIVITIES: ${WORKER_MAX_CONCURRENT_ACTIVITIES:-100}
+    ports:
+      - '9464:9464'
+    mem_limit: 1g
+    # Must exceed the Worker's GracefulShutdownTimeout. Docker's 10s default is exactly equal to
+    # it, so SIGKILL lands at the moment the SDK starts cancelling Activities: the WorkerShutdown
+    # path never runs and the restart drill degrades into an abrupt kill detected only by heartbeat
+    # timeout.
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks: [demo]
+
+  loadgen:
+    image: heartbeat-demo-app:local
+    command: ['LoadGenerator.dll']
+    depends_on: [worker]
+    environment:
+      <<: *app-env
+      LOADGEN_TARGET_RATE_PER_SEC: ${LOADGEN_TARGET_RATE_PER_SEC:-0.5}
+      LOADGEN_MAX_IN_FLIGHT: ${LOADGEN_MAX_IN_FLIGHT:-50}
+      LOADGEN_DURATION_SECONDS: ${LOADGEN_DURATION_SECONDS:-0}
+    ports:
+      - '9465:9464'
+    mem_limit: 512m
+    # Room for the drain in LoadGenerator/Program.cs to finish reporting outcomes.
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks: [demo]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=6h'
+      - '--web.enable-lifecycle'
+      # Enables POST /api/v1/admin/tsdb/delete_series, which is how README's "reset the metrics"
+      # step wipes history without tearing down Postgres and losing Workflow state too.
+      - '--web.enable-admin-api'
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - '9090:9090'
+    mem_limit: 1g
+    networks: [demo]
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    depends_on: [prometheus]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # Local demo only: no login wall in front of the dashboards.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_USERS_DEFAULT_THEME=dark
+      - GF_FEATURE_TOGGLES_ENABLE=
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - '3000:3000'
+    mem_limit: 512m
+    networks: [demo]
+
+networks:
+  demo:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

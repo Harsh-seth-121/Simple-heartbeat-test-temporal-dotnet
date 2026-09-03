@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>HeartbeatDemo</RootNamespace>
+    <AssemblyName>HeartbeatDemo.Shared</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Temporalio" Version="$(TemporalioVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
+  </ItemGroup>
+</Project>
