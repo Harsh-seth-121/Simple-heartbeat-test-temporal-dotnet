@@ -1,0 +1,15 @@
+# Dynamic config for the local stack. Raised limits keep the load generator from tripping
+# per-namespace rate limits before the interesting saturation shows up in the dashboards.
+limit.maxIDLength:
+  - value: 255
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
+frontend.rps:
+  - value: 2400
+frontend.namespaceRPS:
+  - value: 2400
+history.persistenceMaxQPS:
+  - value: 3000
+matching.rps:
+  - value: 2400

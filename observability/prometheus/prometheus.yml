@@ -1,0 +1,34 @@
+# Everything is reachable by compose service name on the shared network, so there is no need for
+# host.docker.internal here.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  # Temporal Service metrics. auto-setup runs all four roles in one container, so a single target
+  # covers frontend, history, matching and worker; the `type` label on each series distinguishes
+  # them.
+  - job_name: temporal-server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['temporal:9090']
+        labels:
+          layer: server
+
+  # SDK metrics from our own processes. Same job so worker and load generator series sit together,
+  # separated by the `component` label.
+  - job_name: temporal-sdk
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['worker:9464']
+        labels:
+          layer: sdk
+          component: worker
+      - targets: ['loadgen:9464']
+        labels:
+          layer: sdk
+          component: loadgen
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
