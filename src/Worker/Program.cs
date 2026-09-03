@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Temporalio.Worker;
 
 // Worker entry point. Polls the task queue, runs the Workflow and the long heartbeating Activity,
-// and exposes SDK plus custom metrics on the runtime's Prometheus endpoint.
+// and exposes SDK and custom metrics on the runtime's Prometheus endpoint.
 var config = AppConfig.FromEnvironment();
 
 using var loggerFactory = ProcessHost.CreateLoggerFactory();
@@ -17,8 +17,8 @@ using var worker = new TemporalWorker(
     {
         MaxConcurrentActivities = config.MaxConcurrentActivities,
 
-        // Long enough for in-flight Activities to observe cancellation and flush a heartbeat, short
-        // enough that `docker compose restart worker` is a usable drill.
+        // Long enough for in-flight Activities to see cancellation and flush a heartbeat, short
+        // enough that `docker compose restart worker` stays a usable drill.
         GracefulShutdownTimeout = TimeSpan.FromSeconds(10),
         LoggerFactory = loggerFactory,
     }

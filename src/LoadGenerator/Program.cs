@@ -4,8 +4,8 @@ using HeartbeatDemo;
 using Microsoft.Extensions.Logging;
 using Temporalio.Client;
 
-// Load generator entry point. Starts Workflows at a configured rate, subject to a ceiling on how
-// many may be in flight, and reports what it saw on its own Prometheus endpoint.
+// Starts Workflows at a configured rate under a ceiling on how many
+// may be in flight, and reports what it saw on its own Prometheus endpoint.
 var config = AppConfig.FromEnvironment();
 
 using var loggerFactory = ProcessHost.CreateLoggerFactory();
@@ -41,9 +41,9 @@ try
 {
     while (!shutdown.Token.IsCancellationRequested && clock.Elapsed < deadline)
     {
-        // Debt is the whole point of this pacer. When the semaphore or the server holds starts
-        // back, debt climbs and stays climbing; it is not discarded and re-based, so the graph
-        // shows how far behind target the system actually fell.
+        // Debt is the point of this pacer. When the semaphore or the server holds starts back,
+        // debt climbs and keeps climbing rather than being re-based, so the graph shows how far
+        // behind target the system fell.
         var owed = (clock.Elapsed.TotalSeconds * config.TargetRatePerSecond) - issued;
         metrics.RateDebt.Set(Math.Max(0d, owed), AppMetrics.NoTags);
 
@@ -65,13 +65,10 @@ try
 }
 catch (OperationCanceledException)
 {
-    // Ctrl+C or SIGTERM landed on one of the awaits above. Leaving the loop this way is the normal
-    // shutdown path, so it falls through to the drain rather than being reported as a failure.
+    // Ctrl+C or SIGTERM landed on one of the awaits above. Falls through.
 }
 finally
 {
-    // Bounded well under the container's stop_grace_period so shutdown reports what it saw
-    // instead of being killed mid-drain.
     var drainBudget = TimeSpan.FromSeconds(20);
     logger.LogInformation(
         "Draining {Count} in-flight workflows (up to {Budget:g})", tracked.Count, drainBudget);
@@ -117,8 +114,6 @@ async Task RunOneAsync(string workflowId)
     }
     finally
     {
-        // Every exit path has to give the slot back, including a start that threw, or the pacer
-        // slowly strangles itself against a gate it never reopened.
         metrics.InFlight.Set(Interlocked.Decrement(ref inFlight), AppMetrics.NoTags);
         inFlightGate.Release();
     }

@@ -10,8 +10,8 @@ namespace HeartbeatDemo.Tests;
 
 /// <summary>
 /// Covers the Activity in isolation: fresh runs, resume from a seeded checkpoint, cancellation and
-/// chaos. <see cref="ActivityEnvironment"/> populates the Activity context without a server, so the
-/// heartbeat callback and heartbeat details can both be controlled directly.
+/// chaos. <see cref="ActivityEnvironment"/> populates the Activity context without a server, so
+/// the heartbeat callback and heartbeat details are both controlled directly.
 /// </summary>
 public class ActivityHeartbeatTests
 {
@@ -82,8 +82,7 @@ public class ActivityHeartbeatTests
         Assert.Equal(resumeAt, result.ResumedFrom);
         Assert.Equal(2, result.Attempts);
 
-        // The invariant that matters: total processed equals the job size, no matter where the
-        // winning attempt picked up.
+        // Total processed equals the job size, wherever the winning attempt picked up.
         Assert.Equal(itemCount, result.Processed);
         Assert.Equal(ChecksumThrough(itemCount), result.Checksum);
 
@@ -104,7 +103,7 @@ public class ActivityHeartbeatTests
 
         var run = env.RunAsync(() => activities.ProcessChunksAsync(Job(200, perItemMillis: 20)));
 
-        // Let a few items land, then cancel the way a Workflow cancellation would.
+        // Let a few items land, then cancel as a Workflow cancellation would.
         await Task.Delay(200);
         env.Cancel();
 
@@ -127,8 +126,8 @@ public class ActivityHeartbeatTests
         await Task.Delay(200);
         env.Cancel(ActivityCancelReason.WorkerShutdown);
 
-        // A Worker going away must not surface as a cancelled Activity, or the Workflow would give
-        // up instead of retrying onto another Worker.
+        // A Worker going away must not surface as a cancelled Activity, or the Workflow gives up
+        // instead of retrying onto another Worker.
         var failure = await Assert.ThrowsAsync<ApplicationFailureException>(() => run);
         Assert.Equal("WorkerShutdown", failure.ErrorType);
     }

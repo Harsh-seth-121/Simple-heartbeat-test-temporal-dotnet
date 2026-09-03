@@ -8,11 +8,6 @@ namespace HeartbeatDemo;
 /// </summary>
 public static class ProcessHost
 {
-    /// <summary>
-    /// Creates the console logger factory both processes use: one event per line, timestamped to
-    /// the millisecond so heartbeat, resume and shutdown lines can be read in order.
-    /// </summary>
-    /// <returns>A logger factory the caller owns and must dispose.</returns>
     public static ILoggerFactory CreateLoggerFactory() => LoggerFactory.Create(builder => builder
         .AddSimpleConsole(options =>
         {
@@ -23,7 +18,7 @@ public static class ProcessHost
 }
 
 /// <summary>
-/// Owns a cancellation token that trips on Ctrl+C or SIGTERM.
+/// Cancellation token that trips on Ctrl+C or SIGTERM.
 /// </summary>
 public sealed class ShutdownSignal : IDisposable
 {

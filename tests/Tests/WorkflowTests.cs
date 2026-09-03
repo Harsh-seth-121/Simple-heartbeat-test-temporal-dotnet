@@ -7,14 +7,12 @@ using Xunit;
 namespace HeartbeatDemo.Tests;
 
 /// <summary>
-/// End-to-end coverage against a real local Temporal server.
+/// End-to-end coverage against a real local Temporal server. These use
+/// <see cref="WorkflowEnvironment.StartLocalAsync"/> rather than the time-skipping environment on
+/// purpose: heartbeat timeouts and heartbeat throttling are wall-clock behaviours, and skipping
+/// time past them produces retry patterns that do not happen in production. Jobs here are tiny so
+/// real time stays cheap.
 /// </summary>
-/// <remarks>
-/// These use <see cref="WorkflowEnvironment.StartLocalAsync"/> rather than the time-skipping
-/// environment on purpose: heartbeat timeouts and heartbeat throttling are both wall-clock
-/// behaviours, and skipping time past them produces retry patterns that do not happen in
-/// production. Jobs here are deliberately tiny so real time is cheap.
-/// </remarks>
 public class WorkflowTests
 {
     private static async Task<JobResult> RunJobAsync(AppConfig config, JobInput input)
@@ -54,8 +52,8 @@ public class WorkflowTests
 
         var result = await RunJobAsync(config, input);
 
-        // The point of the pattern: retries change which attempt finishes and where it started,
-        // but the reported progress still adds up to exactly the job size.
+        // Retries change which attempt finishes and where it started, but reported progress
+        // still adds up to exactly the job size.
         Assert.Equal(20, result.Processed);
         Assert.Equal(0, result.Failed);
         Assert.True(result.Attempts >= 1);

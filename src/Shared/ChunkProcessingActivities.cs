@@ -5,7 +5,7 @@ using Temporalio.Exceptions;
 namespace HeartbeatDemo;
 
 /// <summary>
-/// The long-running Activity
+/// The long-running Activity.
 /// </summary>
 /// <param name="config">Process configuration, used only for the chaos failure rate.</param>
 public sealed class ChunkProcessingActivities(AppConfig config)
@@ -14,27 +14,22 @@ public sealed class ChunkProcessingActivities(AppConfig config)
     /// Processes items one at a time, heartbeating a full progress checkpoint after each, and
     /// resuming from the last checkpoint when a previous attempt died.
     /// </summary>
-    /// <param name="input">The job to process.</param>
-    /// <returns>The job outcome.</returns>
-    /// <exception cref="ApplicationFailureException">
-    /// Thrown by injected chaos, and on Worker shutdown so the next Worker retries.
-    /// </exception>
     [Activity]
     public async Task<JobResult> ProcessChunksAsync(JobInput input)
     {
         var ctx = ActivityExecutionContext.Current;
         var metrics = new ActivityMetrics(ctx.MetricMeter);
 
-        // Attempt 1 has no heartbeat details. Later attempts get whatever the server retained from
-        // the last heartbeat the previous attempt managed to flush.
+        // Attempt 1 has no heartbeat details. Later attempts get whatever the server retained
+        // from the previous attempt's last flushed heartbeat.
         Checkpoint? resumeFrom = null;
         if (ctx.Info.HeartbeatDetails.Count > 0)
         {
             resumeFrom = await ctx.Info.HeartbeatDetailAtAsync<Checkpoint>(0).ConfigureAwait(false);
         }
 
-        // The checkpoint is the whole of this attempt's progress state, so it is the only thing
-        // tracked as the loop runs; startIndex is kept only to report where the attempt began.
+        // The checkpoint holds all of this attempt's progress state; startIndex only reports
+        // where the attempt began.
         var checkpoint = resumeFrom ?? new Checkpoint(0, 0, 0, 0L);
         var startIndex = checkpoint.NextIndex;
 
@@ -56,16 +51,15 @@ public sealed class ChunkProcessingActivities(AppConfig config)
         {
             for (var i = startIndex; i < input.ItemCount; i++)
             {
-                // Heartbeats are throttled to roughly 80% of the heartbeat timeout, so the items
-                // between the last flushed heartbeat and the crash get replayed on the next
-                // attempt. Per-item work must therefore be idempotent; there is no way to make the
-                // overlap zero, only to bound it by heartbeating often.
+                // Heartbeats throttle to roughly 80% of the heartbeat timeout, so items between
+                // the last flushed heartbeat and a crash get replayed. Per-item work must be
+                // idempotent.
                 await Task.Delay(input.PerItemMillis, ctx.CancellationToken).ConfigureAwait(false);
 
                 if (config.ChaosFailureRate > 0 && Random.Shared.NextDouble() < config.ChaosFailureRate)
                 {
-                    // Thrown after the work and before the heartbeat, which is exactly where a real
-                    // crash loses progress. Throwing after the heartbeat would make the demo lie.
+                    // Thrown after the work and before the heartbeat, where a real crash loses
+                    // progress. Throwing after the heartbeat would make the demo lie.
                     metrics.AttemptFailed.Add(1, AppMetrics.Tag("reason", "chaos"));
                     ctx.Logger.LogWarning(
                         "Chaos failure in job {JobId} at item {Index} (attempt {Attempt})",
@@ -90,8 +84,8 @@ public sealed class ChunkProcessingActivities(AppConfig config)
         }
         catch (OperationCanceledException)
         {
-            // No final heartbeat here on purpose: the loop already heartbeat after the last
-            // completed item, and the item in flight when cancellation landed is not complete.
+            // No final heartbeat on purpose: the loop already heartbeat after the last completed
+            // item, and the item in flight when cancellation landed is not complete.
             var reason = ctx.CancelReason;
             metrics.AttemptFailed.Add(1, AppMetrics.Tag("reason", reason.ToString()));
             ctx.Logger.LogInformation(
@@ -104,8 +98,8 @@ public sealed class ChunkProcessingActivities(AppConfig config)
             if (reason == ActivityCancelReason.WorkerShutdown)
             {
                 // A Worker going away is not a business cancellation. Fail retryably so the next
-                // Worker picks the job back up from the checkpoint instead of the Workflow seeing
-                // a cancelled Activity.
+                // Worker resumes from the checkpoint instead of the Workflow seeing a cancelled
+                // Activity.
                 throw new ApplicationFailureException(
                     $"Worker shut down at item {checkpoint.NextIndex}", "WorkerShutdown");
             }
